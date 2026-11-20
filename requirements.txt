@@ -1,0 +1,7 @@
+# Viral clip pipeline - fully local, no paid APIs
+yt-dlp
+av==13.1.0  # pinned: av>=14 breaks faster-whisper 1.2.1 (see README)
+faster-whisper
+opencv-python
+numpy
+# Captions are burnt in via ffmpeg's ASS engine (no extra package needed).

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+work/
+projects/
+clips/
+*.mp4
+*.webm
+*.mkv
+.env
+test-output/
