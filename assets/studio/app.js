@@ -57,7 +57,7 @@ async function api(path, data) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-Chopify-Token": state.token,
+            "X-Leonida-Token": state.token,
           },
           body: JSON.stringify(data),
         },
