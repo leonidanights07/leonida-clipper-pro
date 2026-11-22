@@ -398,7 +398,37 @@ async function selectProject(id) {
   renderDetail();
   await refreshProjects();
 }
+function fmtClock(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+  if (hours)
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
+function updateChunkButton(detail) {
+  // Chunked long videos: offer the next 30-minute slice while any remains.
+  const button = $("#next-chunk");
+  const chunks = detail.project.chunks;
+  if (
+    !chunks ||
+    !Number.isFinite(Number(chunks.total)) ||
+    Number(chunks.loaded) >= Number(chunks.total)
+  ) {
+    button.hidden = true;
+    return;
+  }
+  const size = Number(chunks.size) || 1800;
+  const start = Number(chunks.loaded) * size;
+  const end = Math.min(Number(chunks.duration) || start + size, start + size);
+  const minutes = Math.round(size / 60);
+  button.hidden = false;
+  button.textContent = `Load next ${minutes} minutes · ${fmtClock(start)}–${fmtClock(end)}`;
+  button.disabled = detail.busy;
+}
 function updateStatus(detail) {
+  updateChunkButton(detail);
   const progress = detail.progress || {};
   const total = Number(progress.total);
   const progressText =
@@ -419,6 +449,7 @@ function updateStatus(detail) {
   state.busy = detail.busy;
   for (const selector of [
     "#prepare",
+    "#next-chunk",
     "#preview",
     "#render",
     "#save-candidates",
@@ -659,6 +690,7 @@ function renderDetail() {
   renderWords();
   updateSelection();
   renderOutputs(detail);
+  renderThumbOptions(detail);
   updateStatus(detail);
   setTab(state.tab);
 }
@@ -720,6 +752,48 @@ function renderOutputs(detail) {
         })
         .join("")
     : '<p class="muted">Choose candidates and make a preview or export.</p>';
+}
+function splitThumbLines(text) {
+  const words = String(text || "").trim().toUpperCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return ["", ""];
+  if (words.length <= 3) return [words.join(" "), ""];
+  const half = Math.ceil(words.length / 2);
+  return [words.slice(0, half).join(" "), words.slice(half).join(" ")];
+}
+function thumbLinesForClip(filename) {
+  // Rendered files start with the candidate number (001-...); default the
+  // thumbnail text from that candidate's hook.
+  const match = String(filename || "").match(/^(\d{3})-/);
+  const candidates = state.detail.candidates || [];
+  if (match) {
+    const clip = candidates[Number(match[1]) - 1];
+    if (clip && clip.hook) return splitThumbLines(clip.hook);
+  }
+  return splitThumbLines(
+    String(filename || "").replace(/\.mp4$/, "").replace(/[-_]/g, " "),
+  );
+}
+function renderThumbOptions(detail) {
+  const select = $("#thumb-clip");
+  const videos = (detail.files || []).filter((f) => f.name.endsWith(".mp4"));
+  const previous = select.value;
+  select.innerHTML = videos.length
+    ? videos
+        .map(
+          (f) =>
+            `<option value="${escapeHTML(f.name)}">${escapeHTML(f.name)}</option>`,
+        )
+        .join("")
+    : '<option value="">No rendered clips yet — export one first.</option>';
+  select.value = videos.some((f) => f.name === previous)
+    ? previous
+    : videos[0]?.name || "";
+  const [line1, line2] = thumbLinesForClip(select.value);
+  if (document.activeElement !== $("#thumb-line1"))
+    $("#thumb-line1").value = line1;
+  if (document.activeElement !== $("#thumb-line2"))
+    $("#thumb-line2").value = line2;
+  $("#make-thumbnails").disabled = !videos.length || detail.busy;
 }
 async function saveCandidates(showNotice = true) {
   if (!state.detail.candidates.length)
@@ -1137,9 +1211,58 @@ $("#caption-preview").addEventListener(
     await play(start, start + 5);
   }),
 );
+$("#thumb-clip").addEventListener("change", () => {
+  const [line1, line2] = thumbLinesForClip($("#thumb-clip").value);
+  $("#thumb-line1").value = line1;
+  $("#thumb-line2").value = line2;
+});
+$("#make-thumbnails").addEventListener(
+  "click",
+  safe(async () => {
+    const clip = $("#thumb-clip").value;
+    if (!clip) throw new Error("Export a clip first, then make its thumbnail.");
+    const sizes = ["9x16", "16x9", "1x1"].filter(
+      (size) => $(`#thumb-size-${size}`).checked,
+    );
+    if (!sizes.length) throw new Error("Pick at least one thumbnail size.");
+    const button = $("#make-thumbnails");
+    button.disabled = true;
+    try {
+      const result = await api(`/api/projects/${state.id}/thumbnail`, {
+        clip,
+        line1: $("#thumb-line1").value.trim() || null,
+        line2: $("#thumb-line2").value.trim() || null,
+        sizes,
+        logo: $("#thumb-logo").value.trim() || null,
+        name: $("#thumb-name").value.trim() || null,
+      });
+      $("#thumb-results").textContent = `Saved: ${result.files.join(", ")}`;
+      notice(`Thumbnails saved next to the clip: ${result.files.join(", ")}`);
+      const detail = await api(`/api/projects/${state.id}`);
+      state.detail = detail;
+      renderDetail();
+    } finally {
+      button.disabled = false;
+    }
+  }),
+);
 $("#prepare").addEventListener(
   "click",
   safe(() => run("prepare")),
+);
+$("#next-chunk").addEventListener(
+  "click",
+  safe(async () => {
+    const button = $("#next-chunk");
+    const label = button.textContent;
+    await api(`/api/projects/${state.id}/next-chunk`, {});
+    state.detail.busy = true;
+    state.detail.project.status = "queued";
+    state.detail.project.stage = "next-chunk";
+    updateStatus(state.detail);
+    notice(`${label} — loading the next slice. Earlier clips stay put.`);
+    await refreshProjects();
+  }),
 );
 $("#preview").addEventListener(
   "click",

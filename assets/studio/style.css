@@ -1,27 +1,26 @@
-/* Chopify Studio — Signal Desk
-   THESIS: a catalog-console identity, not a generic admin grid.
-   OWN-WORLD: matte black, white hairline plots, fac codes, decode strips.
-   FIRST VIEWPORT: index rail + job plate with a live pulse + ruled candidates.
-   FORM: factory-records catalog sleeve (seed f8fe4d38).
-   FINISH: unreviewed and undocumented is unfinished; this build ends with the
-   finish review, the verdict, and DESIGN.md. */
+/* Leonida Clipper Pro — Neon Sunset
+   THESIS: the Leonida Nights channel look — deep purple night, a sunset
+   gradient (orange -> pink -> violet), neon pink highlights.
+   Same layout, controls and IDs as before; only the palette changed. */
 :root {
   color-scheme: dark;
-  --bg: #0b0e0f;
-  --rail: #080a0b;
-  --surface: #111516;
-  --surface-2: #171c1d;
-  --line: #2b3234;
-  --line-soft: #1f2527;
-  --ink: #f2f4ee;
-  --ink-dim: #bcc5c1;
-  --muted: #8c9692;
-  --accent: #d4ef83;
-  --accent-ink: #131a0a;
-  --ready: #d4ef83;
-  --running: #f2c14e;
-  --failed: #ff8a6b;
-  --queued: #8db8ff;
+  --bg: #0d0620;
+  --rail: #12082b;
+  --surface: #1a0b33;
+  --surface-2: #241145;
+  --line: #4a2a6b;
+  --line-soft: #33194d;
+  --ink: #fff5f0;
+  --ink-dim: #e8c8e0;
+  --muted: #b08bb8;
+  --accent: #ff2e88;
+  --accent-ink: #ffffff;
+  --ready: #ffb347;
+  --running: #ff7a18;
+  --failed: #ff4d6d;
+  --queued: #b78cff;
+  --sunset: linear-gradient(135deg, #ff7a18 0%, #ff2e88 55%, #b967ff 100%);
+  --sunset-soft: linear-gradient(135deg, rgba(255, 122, 24, 0.9) 0%, rgba(255, 46, 136, 0.9) 55%, rgba(185, 103, 255, 0.9) 100%);
   --sans: ui-sans-serif, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --mono: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
   --rail-width: 244px;
@@ -33,7 +32,10 @@
 html, body { min-height: 100%; }
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(ellipse 90% 45% at 85% -5%, rgba(255, 46, 136, 0.20), transparent 60%),
+    radial-gradient(ellipse 70% 40% at 10% 0%, rgba(255, 122, 24, 0.14), transparent 55%),
+    var(--bg);
   color: var(--ink);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -67,15 +69,16 @@ button {
   letter-spacing: 0.01em;
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
 }
-button:hover { background: #202627; border-color: #3c4547; transform: translateY(-2px); }
+button:hover { background: #2e1650; border-color: #6b3a9e; transform: translateY(-2px); }
 button:active { transform: translateY(0); }
 button:disabled { opacity: 0.42; cursor: not-allowed; transform: none; }
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--sunset);
+  border-color: transparent;
   color: var(--accent-ink);
+  box-shadow: 0 4px 22px rgba(255, 46, 136, 0.35);
 }
-button.primary:hover { background: #e2f7a5; border-color: #e2f7a5; }
+button.primary:hover { background: var(--sunset-soft); border-color: transparent; box-shadow: 0 6px 26px rgba(255, 46, 136, 0.5); }
 .wide { width: 100%; }
 input, textarea, select {
   width: 100%;
@@ -86,8 +89,8 @@ input, textarea, select {
   min-height: 44px;
   transition: border-color 160ms ease, background 160ms ease;
 }
-input:hover, textarea:hover, select:hover { border-color: #3c4547; }
-input:focus, textarea:focus, select:focus { border-color: var(--accent); background: #0e1213; outline: none; }
+input:hover, textarea:hover, select:hover { border-color: #6b3a9e; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); background: #160a2e; outline: none; }
 input[type="checkbox"] { width: 18px; min-height: 18px; height: 18px; accent-color: var(--accent); }
 textarea { resize: vertical; line-height: 1.6; }
 label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-dim); letter-spacing: 0.02em; }
@@ -100,7 +103,10 @@ a:hover { text-decoration-thickness: 2px; }
   position: fixed;
   inset: 0 auto 0 0;
   width: var(--rail-width);
-  background: var(--rail);
+  background:
+    radial-gradient(ellipse 120% 22% at 50% 0%, rgba(255, 46, 136, 0.28), transparent 65%),
+    radial-gradient(ellipse 100% 18% at 50% 0%, rgba(255, 122, 24, 0.18), transparent 60%),
+    var(--rail);
   border-right: 1px solid var(--line);
   padding: 26px 18px 20px;
   display: flex;
@@ -117,6 +123,14 @@ a:hover { text-decoration-thickness: 2px; }
   font-size: 23px;
   font-weight: 800;
   letter-spacing: -0.03em;
+}
+.brand-logo {
+  display: block;
+  height: 46px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 14px rgba(255, 46, 136, 0.45));
 }
 .mark {
   background: var(--accent);
@@ -186,6 +200,7 @@ main { margin-left: var(--rail-width); min-height: 100vh; }
   justify-content: space-between;
   padding: 0 34px;
   border-bottom: 1px solid var(--line);
+  border-image: linear-gradient(90deg, #ff7a18, #ff2e88, #b967ff) 1;
   font: 11px var(--mono);
   letter-spacing: 0.12em;
   color: var(--muted);
@@ -211,6 +226,13 @@ main { margin-left: var(--rail-width); min-height: 100vh; }
   letter-spacing: -0.03em;
   font-weight: 700;
   margin: 0 0 12px;
+}
+.intro h1 em {
+  font-style: normal;
+  background: var(--sunset);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .intro p { color: var(--ink-dim); font-size: 15px; max-width: 62ch; margin: 0; }
 .workflow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 34px; border-top: 1px solid var(--line); }
@@ -248,7 +270,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .status[data-state="running"]::before { background: var(--running); }
 .status[data-state="failed"]::before { background: var(--failed); }
 .status[data-state="queued"]::before { background: var(--queued); }
-.pulse-frame { grid-column: 1 / -1; border: 1px solid var(--line-soft); background: #080b0c; height: 92px; overflow: hidden; }
+.pulse-frame { grid-column: 1 / -1; border: 1px solid var(--line-soft); background: #150a2a; height: 92px; overflow: hidden; }
 #job-pulse { display: block; width: 100%; height: 100%; }
 #job-error { margin: 16px 0 0; padding: 12px 16px; border: 1px solid var(--failed); color: var(--failed); font: 12px var(--mono); }
 
@@ -378,4 +400,10 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 
 /* Per-clip subtitle style picker (Leonida Clipper Pro). */
 .clip-style { display: block; margin-top: 10px; font: 11px var(--mono); color: var(--muted); letter-spacing: 0.06em; }
-.clip-style select { display: block; width: 100%; margin-top: 4px; padding: 8px; background: #0f1314; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.clip-style select { display: block; width: 100%; margin-top: 4px; padding: 8px; background: #160a2e; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+
+/* Thumbnails panel (v4 style). */
+.thumb-panel { display: grid; gap: 12px; }
+.thumb-sizes { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.thumb-sizes label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-dim); }
+#thumb-results { font-size: 12px; line-height: 1.6; word-break: break-all; }

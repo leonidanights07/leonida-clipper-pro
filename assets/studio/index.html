@@ -4,18 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>Chopify Studio · Local video workspace</title>
+    <title>Leonida Clipper Pro · Local video workspace</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/style.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
     <aside class="rail">
-      <a class="wordmark" href="/" aria-label="Chopify Studio home"
-        ><span class="mark">c/</span>chopify<span class="version"
-          >STUDIO</span
-        ></a
-      >
+      <a class="wordmark" href="/" aria-label="Leonida Clipper Pro home"
+        ><img class="brand-logo" src="/logo.png" alt="Leonida Clipper Pro"
+      /></a>
       <div class="local">
         <span class="dot"></span> Files stay on this computer
       </div>
@@ -35,7 +33,7 @@
     </aside>
     <main>
       <header class="topbar">
-        <span>CHOPIFY / STUDIO</span
+        <span>LEONIDA CLIPPER PRO</span
         ><span id="connection"><span class="dot"></span> Local session</span>
       </header>
       <div id="notice" role="status" aria-live="polite" hidden></div>
@@ -68,7 +66,7 @@
           <textarea
             id="brief-text"
             rows="5"
-            placeholder="Paste campaign requirements here. Chopify uses a local LLM to extract rules and cut only matching moments."
+            placeholder="Paste campaign requirements here. Leonida Clipper Pro uses a local LLM to extract rules and cut only matching moments."
           ></textarea>
           <div class="form-grid">
             <label
@@ -134,7 +132,7 @@
           <span class="eyebrow">WATCH · DETECT · CUT</span>
           <h1>Clip <em>live streams.</em></h1>
           <p>
-            Paste a stream URL. Chopify watches it on this computer and saves
+            Paste a stream URL. Leonida Clipper Pro watches it on this computer and saves
             captioned clips when the hype signals fire.
           </p>
         </div>
@@ -147,7 +145,7 @@
           <input id="live-source" required placeholder="https://twitch.tv/channel or https://.../live.m3u8" />
           <label for="live-brief">Campaign brief (optional)</label>
           <textarea id="live-brief" rows="4"
-            placeholder="Paste requirements; chopify will only save clips that match."></textarea>
+            placeholder="Paste requirements; Leonida Clipper Pro will only save clips that match."></textarea>
           <button id="live-start" type="submit" class="primary">Start live session</button>
         </form>
         <button id="live-stop" hidden>Stop session</button>
@@ -198,6 +196,7 @@
                 </button>
               </div>
               <button id="prepare">Find / refresh clips</button>
+              <button id="next-chunk" type="button" hidden></button>
             </div>
             <div id="clip-panel">
               <div id="selection-summary" class="selection-summary" hidden></div>
@@ -260,6 +259,56 @@
                   Choose candidates and make a preview or export.
                 </p>
               </div>
+            </section>
+            <section class="thumb-panel panel">
+              <div class="panel-title">
+                <h2>Thumbnails</h2>
+                <span>V4 STYLE · SUNSET + LAPTOP</span>
+              </div>
+              <p class="hint">
+                Make a thumbnail for a rendered clip: sunset background,
+                logo on top, laptop showing a frame from the clip, big bold
+                text below. Saved next to the clip as JPG.
+              </p>
+              <label
+                >Clip<select id="thumb-clip"></select></label
+              >
+              <label
+                >Line 1<input id="thumb-line1" maxlength="40"
+                  placeholder="NEEDS KEYS!" /></label
+              >
+              <label
+                >Line 2<input id="thumb-line2" maxlength="40"
+                  placeholder="CAN'T STEAL IT!" /></label
+              >
+              <div class="thumb-sizes" role="group" aria-label="Thumbnail sizes">
+                <label
+                  ><input type="checkbox" id="thumb-size-9x16" checked />
+                  9:16 · 1080×1920</label
+                >
+                <label
+                  ><input type="checkbox" id="thumb-size-16x9" checked />
+                  16:9 · 1920×1080</label
+                >
+                <label
+                  ><input type="checkbox" id="thumb-size-1x1" checked />
+                  1:1 · 1080×1080</label
+                >
+              </div>
+              <label
+                >Your logo image (optional, local file path)<input
+                  id="thumb-logo"
+                  placeholder="Leave empty for the Leonida logo" /></label
+              >
+              <label
+                >Your name (optional, shown instead of a logo)<input
+                  id="thumb-name"
+                  placeholder="Leave empty for the Leonida logo" /></label
+              >
+              <button id="make-thumbnails" class="primary" type="button">
+                Make thumbnails
+              </button>
+              <div id="thumb-results" class="muted"></div>
             </section>
             <details class="log-panel">
               <summary>Job log</summary>
@@ -677,7 +726,7 @@
         </div>
       </section>
       <footer>
-        CHOPIFY <span>Open source. No upload. No watermark.</span>
+        LEONIDA CLIPPER PRO <span>Open source. No upload. No watermark.</span>
       </footer>
     </main>
   </body>
