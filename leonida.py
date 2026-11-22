@@ -359,8 +359,8 @@ def main():
     ap.add_argument("--batch", help="JSON file containing a list of video paths or URLs")
     ap.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
                     help="reuse successful matching stages (default enabled)")
-    ap.add_argument("--action", choices=["all", "prepare", "render"], default="all",
-                    help="prepare candidates for review, render saved edits, or run all stages")
+    ap.add_argument("--action", choices=["all", "prepare", "render", "next-chunk"], default="all",
+                    help="prepare candidates for review, render saved edits, run all stages, or load the next 30-minute slice of a long URL video")
     ap.add_argument("--brand", help="JSON brand preset path")
     ap.add_argument("--layout", choices=["single", "split", "stacked"], default="single")
     ap.add_argument("--facecam-box", type=float, nargs=4, default=None,

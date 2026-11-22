@@ -2,7 +2,9 @@
 import hashlib
 import json
 import math
+import os
 import re
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -321,13 +323,265 @@ def validate_segments(segments, duration):
     return result
 
 
+# --- Chunked long-video loading -------------------------------------------
+# URL sources longer than one chunk (default 30 minutes) are discovered one
+# slice at a time: prepare loads only the first slice, and each "Load next"
+# adds the next slice. LEONIDA_CHUNK_SECONDS overrides the slice length
+# (tests use 120s). Local files and short URLs keep the old whole-video path.
+
+CHUNK_OVERLAP_SECONDS = dt.OVERLAP_SECONDS
+
+
+def chunk_seconds():
+    """Seconds per discovery chunk; LEONIDA_CHUNK_SECONDS overrides (tests)."""
+    try:
+        value = int(os.environ.get("LEONIDA_CHUNK_SECONDS", "1800"))
+    except (TypeError, ValueError):
+        return 1800
+    return max(60, value)
+
+
+def _chunk_bounds(index, size, duration):
+    """(start, owned_end, end) of one chunk; end carries the 30s overlap."""
+    start = float(index * size)
+    owned_end = min(float(duration), start + float(size))
+    end = min(float(duration), owned_end + CHUNK_OVERLAP_SECONDS)
+    return start, owned_end, end
+
+
+def chunk_info(path, state):
+    """Return (chunked, meta) for this project, probing the URL once.
+
+    Chunked = a URL source with audio whose known duration is longer than one
+    chunk. The probe result is cached in state["source_meta"] exactly like the
+    normal prepare path does, so this costs one yt-dlp metadata call at most.
+    """
+    source_input = state["source"]
+    if not ingest.is_url(source_input):
+        return False, None
+    meta = state.get("source_meta")
+    if not isinstance(meta, dict) or meta.get("duration") is None:
+        meta = ingest.probe_source(source_input)
+        meta.pop("formats", None)
+        meta = {**meta, "long": ingest.is_long_source(meta)}
+        state["source_meta"] = meta
+        state["cache"]["source_meta"] = digest(source_input)
+        save_project(path, state)
+    duration = meta.get("duration")
+    if duration is None:
+        return False, meta
+    if meta.get("has_audio") is False:
+        return False, meta
+    return float(duration) > chunk_seconds(), meta
+
+
+def _ensure_chunks(path, state, meta):
+    """Initialise state["chunks"] for a chunked project (idempotent)."""
+    if not state.get("chunks"):
+        size = chunk_seconds()
+        duration = float(meta["duration"])
+        state["chunks"] = {"size": size,
+                           "total": math.ceil(duration / size),
+                           "loaded": 0, "duration": duration}
+        save_project(path, state)
+    return state["chunks"]
+
+
+def _concat_chunk_audio(path, count, size, duration):
+    """Concatenate the loaded chunk audio slices into one discovery file.
+
+    The merged transcript's audio evidence is measured from this file, so it
+    must be a continuous global timeline: each slice is trimmed to the range
+    it owns (the 30s overlap at the end of a slice belongs to the next chunk
+    and is dropped here, otherwise every chunk boundary would shift the
+    timeline by 30s). Copy first; re-encode to AAC if the slices disagree
+    on codec.
+    """
+    path = Path(path)
+    slices = []
+    for index in range(count):
+        found = ingest._find_media(path, f"audio_chunk{index:03d}")
+        if found is not None:
+            slices.append((index, found))
+    if not slices:
+        raise ValueError("No chunk audio downloaded yet.")
+    if len(slices) == 1:
+        return slices[0][1]
+    owned_files = []
+    for index, slice_path in slices:
+        owned = min(float(size), float(duration) - index * size)
+        if owned <= 0:
+            continue
+        trimmed = path / f"audio_chunk{index:03d}_owned{slice_path.suffix}"
+        subprocess.run(["ffmpeg", "-v", "error", "-y",
+                        "-i", str(slice_path), "-t", f"{owned:.3f}",
+                        "-c", "copy", str(trimmed)], check=True)
+        owned_files.append(trimmed)
+    if not owned_files:
+        raise ValueError("No chunk audio downloaded yet.")
+    suffix = owned_files[0].suffix or ".m4a"
+    target = path / f"audio_all{suffix}"
+    listing = path / "audio_all.txt"
+    listing.write_text("".join(f"file '{item.name}'\n" for item in owned_files),
+                       encoding="utf-8")
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat",
+                        "-safe", "0", "-i", str(listing), "-c", "copy",
+                        str(target)], check=True)
+    except subprocess.CalledProcessError:
+        target = target.with_suffix(".m4a")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat",
+                        "-safe", "0", "-i", str(listing), "-c:a", "aac",
+                        "-b:a", "128k", str(target)], check=True)
+    return target.resolve()
+
+
+def prepare_next_chunk(path, state, options, progress=None, on_detection=None,
+                       explicit_keys=None):
+    """Load the next slice of a chunked URL project and rescore.
+
+    Downloads only that slice's audio (yt-dlp --download-sections), transcribes
+    it with global timestamps, merges it into transcript.json, and re-runs
+    discovery/selection over the merged transcript, so new clips are appended
+    and clips from earlier slices stay put.
+    """
+    path = Path(path)
+    chunks = state.get("chunks") or {}
+    size = int(chunks.get("size") or chunk_seconds())
+    total = int(chunks.get("total") or 0)
+    duration = float(chunks.get("duration") or 0)
+    loaded = int(chunks.get("loaded") or 0)
+    if loaded >= total:
+        state.update(status="review", stage="ready for review")
+        save_project(path, state)
+        return state
+    source_input = state["source"]
+    index = loaded
+    start, owned_end, end = _chunk_bounds(index, size, duration)
+    state.update(status="running", stage=f"chunk {index + 1}/{total}",
+                 error=None,
+                 progress={"stage": "chunk", "done": index, "total": total,
+                           "detail": f"{start:.0f}-{owned_end:.0f}s"})
+    save_project(path, state)
+    print(f"[{state['id']}] chunk {index + 1}/{total} "
+          f"({start:.0f}-{owned_end:.0f}s)", flush=True)
+
+    part_path = path / f"transcript.part{index:03d}.json"
+    identity = digest([source_input, index, start, end])
+    part = dt._read_part(part_path) if part_path.exists() else None
+    if not dt._part_matches(part, index, start, end, identity):
+        audio = ingest.download_audio_section(
+            source_input, start, end, path, f"audio_chunk{index:03d}")
+        model = dt._load_model(options["whisper_model"], options["device"],
+                               "int8" if options["device"] == "cpu" else "default")
+        seg_list, words, language, _ = dt._transcribe_media(
+            model, audio, offset=start)
+        part = {"version": dt.TRANSCRIPT_VERSION, "index": index,
+                "start": start, "end": end, "identity": identity,
+                "language": language, "segments": seg_list, "words": words}
+        dt._atomic_json(part_path, part)
+    parts = []
+    for i in range(loaded + 1):
+        item = dt._read_part(path / f"transcript.part{i:03d}.json")
+        if item is not None:
+            parts.append(item)
+    if not parts:
+        raise ValueError("No transcript parts for the loaded chunks.")
+    merged = dt.merge_transcript_parts(parts, duration,
+                                       overlap=dt.OVERLAP_SECONDS)
+    audio_all = _concat_chunk_audio(path, loaded + 1, size, duration)
+    transcript = {
+        "video": str(audio_all),
+        "language": merged["language"],
+        "duration": duration,
+        "model": options["whisper_model"],
+        "segments": merged["segments"],
+        "words": merged["words"],
+        "transcript_version": dt.TRANSCRIPT_VERSION,
+        "chunked": True,
+        "chunks": len(parts),
+        "media_kind": "audio",
+        "render_from_sections": True,
+        "source": source_input,
+        "source_duration": duration,
+        "source_identity": identity,
+    }
+    dt._atomic_json(path / "transcript.json", transcript)
+    state["video"] = str(audio_all)
+    state["source_meta"] = {**(state.get("source_meta") or {}),
+                            "long": True, "media_kind": "audio",
+                            "render_from_sections": True,
+                            "discovery": str(audio_all)}
+    state["chunks"] = {"size": size, "total": total, "loaded": loaded + 1,
+                       "duration": duration}
+    transcript_key = digest([
+        dt.TRANSCRIPT_VERSION, [item.get("identity") for item in parts],
+        options["whisper_model"], options["device"], True, "audio", True,
+        source_input, loaded + 1])
+    state["cache"]["transcript"] = transcript_key
+    # Deliberately no state["source_identity"]: the concatenated discovery
+    # audio grows with every chunk, and the render stage refuses to run when
+    # that identity changes. Renders use URL sections, not this file.
+    state.pop("source_identity", None)
+
+    data = read_json(path / "transcript.json")
+    if not state.get("detection") or not state.get("format_recipe"):
+        detection = video_types.detect_from_transcript(
+            data, state.get("video"), path, options)
+        options, state = apply_detection(
+            path, state, options, detection, on_detection, explicit_keys)
+    else:
+        options = video_types.apply_format(
+            options, state["format_recipe"], explicit_keys or set())
+    save_project(path, state)
+    recipe = state["format_recipe"]
+    discovery_key, selection_key = score_keys(transcript_key, data, options)
+    candidates_path = path / "candidates.json"
+    selection_path = path / "selection.json"
+    segments_path = path / "segments.json"
+    if options["search"] or options["semantic"]:
+        combined_key = digest([discovery_key, selection_key])
+        if (state["cache"].get("score") != combined_key
+                or not segments_path.exists()):
+            score_clips.run(path, **score_options(options))
+            state["cache"]["score"] = combined_key
+            save_project(path, state)
+    else:
+        if (state["cache"].get("discovery") != discovery_key
+                or not candidates_path.exists()):
+            score_clips.discover(
+                path, min_len=options["min_len"], max_len=options["max_len"],
+                preferred_len=options["preferred_len"],
+                profile=recipe.get("profile"),
+                band=(recipe["min_len"], recipe["max_len"]),
+                detection=state.get("detection"),
+                format_info=state.get("format"))
+            state["cache"]["discovery"] = discovery_key
+            save_project(path, state)
+        if (state["cache"].get("selection") != selection_key
+                or not segments_path.exists() or not selection_path.exists()):
+            score_clips.select(
+                path,
+                min_score=options["min_score"] if options["min_score"] is not None else 8.0,
+                max_clips=options["max_clips"],
+                preferred_len=options["preferred_len"], llm=options["llm"])
+            state["cache"]["selection"] = selection_key
+            save_project(path, state)
+    state["selection"] = read_json(selection_path)
+    state.update(status="review", stage="ready for review",
+                 progress={"stage": "chunk", "done": loaded + 1,
+                           "total": total, "detail": "complete"})
+    save_project(path, state)
+    return state
+
+
 def run_project(path, action="all", preview=False, pick=None, resume=True,
                 progress=None, on_detection=None, explicit_keys=None):
     """Prepare candidates or render saved candidates; checkpoint every successful clip."""
     path = Path(path).resolve()
     state = read_project(path)
     options = validate_options(state["options"])
-    if action not in {"all", "prepare", "render"}:
+    if action not in {"all", "prepare", "render", "next-chunk"}:
         raise ValueError("Unknown project action.")
     def stage(name):
         state.update(status="running", stage=name, error=None,
@@ -345,7 +599,29 @@ def run_project(path, action="all", preview=False, pick=None, resume=True,
         save_project(path, state)
 
     try:
+        if action == "next-chunk":
+            chunked, meta = chunk_info(path, state)
+            if not chunked:
+                raise ValueError(
+                    "Load-next only works on URL videos longer than 30 minutes.")
+            _ensure_chunks(path, state, meta)
+            state = prepare_next_chunk(path, state, options,
+                                       progress=progress,
+                                       on_detection=on_detection,
+                                       explicit_keys=explicit_keys)
+            save_project(path, state)
+            return state
+        chunked_prepared = False
         if action in {"all", "prepare"}:
+            chunked, meta = chunk_info(path, state)
+            if chunked:
+                _ensure_chunks(path, state, meta)
+                state = prepare_next_chunk(path, state, options,
+                                           progress=progress,
+                                           on_detection=on_detection,
+                                           explicit_keys=explicit_keys)
+                chunked_prepared = True
+        if action in {"all", "prepare"} and not chunked_prepared:
             stage("source")
             source_input = state["source"]
             local = Path(source_input).expanduser()

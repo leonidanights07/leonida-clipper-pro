@@ -16,6 +16,7 @@ import webbrowser
 import branding
 import projects
 import render_clips
+import thumbnails
 import video_types
 
 HERE = Path(__file__).resolve().parent
@@ -50,7 +51,7 @@ def project_detail(root, project_id):
             data[key] = projects.read_json(path / filename)
     for directory in ("previews", "clips"):
         for file in sorted((path / directory).glob("*")):
-            if file.suffix in {".mp4", ".srt", ".png", ".json"}:
+            if file.suffix in {".mp4", ".srt", ".png", ".json", ".jpg"}:
                 data["files"].append({"name": file.name, "kind": directory,
                                       "url": f"/media/{project_id}/{directory}/{file.name}"})
     if (path / "job.log").exists():
@@ -127,6 +128,22 @@ class Studio:
             state.update(status="queued", stage=action, error=None)
             projects.save_project(path, state)
             self.futures[project_id] = self.executor.submit(self._run, path, action, preview, pick)
+
+    def enqueue_next_chunk(self, project_id):
+        """Queue loading the next 30-minute slice of a chunked project."""
+        with self.lock:
+            path = projects.project_path(self.root, project_id)
+            if self.busy(project_id):
+                raise ValueError("Wait for this project's current job to finish before editing.")
+            state = projects.read_project(path)
+            if not state.get("chunks"):
+                raise ValueError("This project is not a chunked long video.")
+            if int(state["chunks"].get("loaded", 0)) >= int(state["chunks"].get("total", 0)):
+                raise ValueError("The whole video is already loaded.")
+            state.update(status="queued", stage="next-chunk", error=None)
+            projects.save_project(path, state)
+            self.futures[project_id] = self.executor.submit(
+                self._run, path, "next-chunk", False, None)
 
     def _run(self, path, action, preview, pick):
         cmd = [sys.executable, str(HERE / "leonida.py"), "--project", str(path),
@@ -256,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) != 4 or parts[2] not in {"clips", "previews"}:
                     raise ValueError("Unknown media path.")
                 file = (path / parts[2] / parts[3]).resolve()
-                if file.parent != path / parts[2] or file.suffix not in {".mp4", ".srt", ".png", ".json"}:
+                if file.parent != path / parts[2] or file.suffix not in {".mp4", ".srt", ".png", ".json", ".jpg"}:
                     raise ValueError("Invalid media path.")
                 return self.send_file(file)
             if parts == ["api", "live"]:
@@ -273,7 +290,8 @@ class Handler(BaseHTTPRequestHandler):
                 if file.parent != clips_dir or file.suffix not in {".mp4", ".srt", ".png", ".json"}:
                     raise ValueError("Invalid media path.")
                 return self.send_file(file)
-            static = {"": "index.html", "app.js": "app.js", "style.css": "style.css"}
+            static = {"": "index.html", "app.js": "app.js", "style.css": "style.css",
+                      "logo.png": "logo.png"}
             filename = "/".join(parts)
             if filename in static:
                 return self.send_file(STATIC / static[filename])
@@ -370,6 +388,37 @@ class Handler(BaseHTTPRequestHandler):
                             projects.save_project(path, state)
                     elif action == "run":
                         self.app.enqueue(project_id, body.get("action", "prepare"), body.get("preview", False), body.get("pick"))
+                    elif action == "next-chunk":
+                        self.app.enqueue_next_chunk(project_id)
+                    elif action == "thumbnail":
+                        clip = body.get("clip")
+                        if not isinstance(clip, str) or not clip.endswith(".mp4") or "/" in clip or "\\" in clip:
+                            raise ValueError("Pick a rendered clip file.")
+                        clip_path = None
+                        for directory in ("clips", "previews"):
+                            candidate = (path / directory / clip).resolve()
+                            if candidate.is_file() and candidate.parent == (path / directory).resolve():
+                                clip_path = candidate
+                                break
+                        if clip_path is None:
+                            raise ValueError("Clip file not found.")
+                        sizes = body.get("sizes") or list(thumbnails.SIZES)
+                        if (not isinstance(sizes, list) or not sizes
+                                or any(s not in thumbnails.SIZES for s in sizes)):
+                            raise ValueError("Pick at least one thumbnail size.")
+                        line1 = body.get("line1") or None
+                        line2 = body.get("line2") or None
+                        logo = body.get("logo") or None
+                        name = body.get("name") or None
+                        for key, value in (("line1", line1), ("line2", line2),
+                                           ("logo", logo), ("name", name)):
+                            if value is not None and not isinstance(value, str):
+                                raise ValueError(f"{key} must be text.")
+                        made = thumbnails.make_thumbnails(
+                            clip_path, line1=line1, line2=line2, sizes=sizes,
+                            logo_path=logo, name_text=name)
+                        return self.send_json(
+                            {"files": [made_path.name for made_path in made]})
                     else:
                         return self.send_json({"error": "Not found."}, 404)
                     return self.send_json({"ok": True})

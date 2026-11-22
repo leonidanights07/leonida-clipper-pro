@@ -7,6 +7,7 @@ selected video sections. Everything uses yt-dlp/ffprobe locally.
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -30,12 +31,23 @@ def is_url(source):
 
 
 def _kill_tree(proc):
-    """Stop a downloader and any ffmpeg child it started."""
+    """Stop a downloader and any ffmpeg child it started.
+
+    The downloader is started in its own process group (see _run), so on
+    POSIX the whole group goes: killing only yt-dlp leaves its ffmpeg
+    grandchild orphaned, still holding the stdout/stderr pipes open, and
+    the second communicate() below would then wait on those pipes forever.
+    """
     if os.name == "nt":
         try:
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
                            capture_output=True, text=True, check=False)
         except OSError:
+            pass
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (OSError, ProcessLookupError):
             pass
     try:
         proc.kill()
@@ -50,7 +62,8 @@ def _run(cmd, timeout=None, **kwargs):
     if timeout is None:
         return subprocess.run(cmd, **kwargs)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True)
+                            stderr=subprocess.PIPE, text=True,
+                            start_new_session=(os.name != "nt"))
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -233,6 +246,47 @@ def _remove_old(workdir, prefix):
                 path.unlink()
             except OSError:
                 pass
+
+
+def download_audio_section(url, start, end, workdir, prefix, runner=None,
+                           timeout=SECTION_TIMEOUT):
+    """Download only one audio slice of a URL source (chunked discovery).
+
+    Uses yt-dlp --download-sections so the rest of the file is never fetched:
+    a 30-minute slice of a 10-hour stream downloads in minutes, not hours.
+    Returns the downloaded audio file, or raises RuntimeError.
+    """
+    run = runner or _run
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    _remove_old(workdir, prefix)
+    try:
+        if runner is None:
+            run([
+                sys.executable, "-m", "yt_dlp",
+                "-f", "bestaudio/best", "--no-playlist",
+                "--download-sections",
+                f"*{float(start):.3f}-{float(end):.3f}",
+                "-o", str(workdir / (prefix + ".%(ext)s")), url],
+                timeout=timeout)
+        else:
+            run([
+                sys.executable, "-m", "yt_dlp",
+                "-f", "bestaudio/best", "--no-playlist",
+                "--download-sections",
+                f"*{float(start):.3f}-{float(end):.3f}",
+                "-o", str(workdir / (prefix + ".%(ext)s")), url])
+    except subprocess.TimeoutExpired as exc:
+        raise SectionDownloadTimeout(
+            f"Audio slice download stalled for {float(start):.0f}-"
+            f"{float(end):.0f}s.") from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(
+            "Download failed: no audio file produced.") from exc
+    audio = _find_media(workdir, prefix)
+    if audio is None:
+        raise RuntimeError("Download failed: no audio file produced.")
+    return audio
 
 
 def download_visual_discovery(url, workdir, runner=None):

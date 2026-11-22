@@ -136,6 +136,41 @@ or drop the clip) — the tool does not decide for him.
   windows each pick to exactly 60.00 s at render time, `enforce_exact_60()`
   post-trim in `leonida.py` as a safety net.
 
+## Long videos — chunked loading (30 minutes at a time)
+
+Stream VODs are 8–10 hours; downloading and transcribing the whole thing
+before the first clip appears is too slow. URL videos longer than 30
+minutes are now discovered one slice at a time:
+
+- **Prepare loads only the first 30 minutes** and shows its clips.
+- A **"Load next 30 minutes"** button appears while more video remains
+  (labelled with the time range, e.g. `Load next 30 minutes · 00:30–01:00`).
+  Each click downloads, transcribes and scores only that slice
+  (`yt-dlp --download-sections` — the rest of the file is never fetched)
+  and **adds** its clips to the project; earlier clips stay. All clip times
+  are global video times.
+- When the last slice is loaded the button disappears.
+- Videos of 30 minutes or less, and local files, work exactly as before —
+  no button, no chunking.
+
+`LEONIDA_CHUNK_SECONDS` overrides the slice length (tests use 120 s);
+the default is 1800 s. Silent URL videos (no audio track) keep the old
+whole-video path.
+
+## Thumbnails — v4 style, three sizes
+
+Every rendered clip can get a thumbnail in the Leonida Nights v4 style
+(sunset background, circular logo on top, laptop mockup showing a frame
+from the clip, big bold two-line text): **9:16** `1080×1920` (Shorts),
+**16:9** `1920×1080` (standard YouTube), **1:1** `1080×1080` (square).
+In the dashboard, the **Thumbnails** panel under the rendered clips lets
+you pick a clip (text defaults from its hook), edit the two lines, tick
+the sizes (all three on by default), and optionally give your own logo
+image (local file path) or your own name text instead of a logo — with
+nothing filled in, the Leonida Nights logo is used. Files are saved next
+to the clip (`<clip>-thumb-9x16.jpg`, …). CLI:
+`python thumbnails.py clip.mp4 --line1 "NEEDS KEYS!" --line2 "CAN'T STEAL IT!"`.
+
 ## What was left out (deliberately)
 
 Live clipping, campaign-brief parsing, Ollama / semantic search, podcast
