@@ -157,6 +157,15 @@ class Studio:
     def start_live(self, source, options, brief_text=None):
         raise ValueError('Live clipping is not included in Leonida Clipper Pro.')
 
+    def live_list(self):
+        return []
+
+    def live_state(self, session_id):
+        raise ValueError('Live clipping is not included in Leonida Clipper Pro.')
+
+    def stop_live(self, session_id):
+        return None
+
     def close(self):
         with self.lock:
             self.closing = True
