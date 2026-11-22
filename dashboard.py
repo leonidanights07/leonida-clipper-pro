@@ -279,8 +279,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         origin = self.headers.get("Origin")
         expected = f"http://127.0.0.1:{self.server.server_port}"
+        token = (self.headers.get("X-Leonida-Token", "")
+                 or self.headers.get("X-Chopify-Token", ""))
         if (not self.valid_host() or (origin is not None and origin != expected)
-                or not secrets.compare_digest(self.headers.get("X-Leonida-Token", ""), self.app.token)):
+                or not secrets.compare_digest(token, self.app.token)):
             return self.send_json({"error": "Request rejected. Reload Studio and retry."}, 403)
         try:
             length = int(self.headers.get("Content-Length", "0"))
